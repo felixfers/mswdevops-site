@@ -1,0 +1,136 @@
+name: 🚀 Deploy to AWS S3
+
+on:
+  # Se ejecuta automáticamente al hacer push a main
+  push:
+    branches: [ "main" ]
+  
+  # Permite ejecución manual
+  workflow_dispatch:
+
+# Variables de entorno
+env:
+  AWS_REGION: 'us-east-1'
+  S3_BUCKET: 'www.mswdevops.com'
+
+jobs:
+  # Job 1: Validaciones
+  validate:
+    name: ✅ Validate Files
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v3
+      
+    - name: 🔍 Check required files
+      run: |
+        echo "=== VERIFICANDO ARCHIVOS ==="
+        
+        # Verificar archivos esenciales
+        REQUIRED_FILES=("src/index.html")
+        
+        for file in "${REQUIRED_FILES[@]}"; do
+          if [ -f "$file" ]; then
+            echo "✅ $file encontrado"
+          else
+            echo "❌ ERROR: $file NO encontrado"
+            exit 1
+          fi
+        done
+        
+        echo ""
+        echo "📁 Contenido de /src:"
+        ls -la src/
+        
+    - name: 📏 Check file sizes
+      run: |
+        echo "=== TAMAÑOS DE ARCHIVOS ==="
+        find src/ -type f -name "*.html" -o -name "*.css" -o -name "*.js" | xargs wc -c
+        
+  # Job 2: Despliegue a S3
+  deploy:
+    name: 🚀 Deploy to S3
+    needs: validate  # Espera a que validate termine
+    runs-on: ubuntu-latest
+    
+    # Solo ejecutar en main (no en PRs)
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v3
+      
+    - name: 🔐 Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: 📋 Verify S3 bucket access
+      run: |
+        echo "=== VERIFICANDO ACCESO A S3 ==="
+        
+        # Verificar que podemos acceder al bucket
+        if aws s3 ls "s3://${{ env.S3_BUCKET }}" 2>/dev/null; then
+          echo "✅ Acceso al bucket CONFIRMADO"
+          echo "✅ Permisos S3 DISPONIBLES"
+        else
+          echo "❌ ERROR: No se puede acceder al bucket"
+          echo "Posibles causas:"
+          echo "1. El bucket no existe"
+          echo "2. El usuario no tiene permisos"
+          echo "3. El nombre del bucket es incorrecto"
+          exit 1
+        fi
+        
+    - name: 📤 Sync files to S3
+      run: |
+        echo "=== SINCRONIZANDO ARCHIVOS ==="
+        echo "Origen: ./src"
+        echo "Destino: s3://${{ env.S3_BUCKET }}"
+        echo ""
+        
+        # Sincronizar archivos
+        aws s3 sync ./src s3://${{ env.S3_BUCKET }} \
+          --delete \
+          --acl public-read
+        
+        echo ""
+        echo "✅ Archivos sincronizados exitosamente"
+        
+    - name: 📊 Show uploaded files
+      run: |
+        echo "=== ARCHIVOS EN S3 ==="
+        aws s3 ls s3://${{ env.S3_BUCKET }}/ --recursive --human-readable
+        
+    - name: 🌐 Show website URL
+      run: |
+        echo ""
+        echo "========================================"
+        echo "🎉 🎉 🎉 ¡DESPLIEGUE EXITOSO! 🎉 🎉 🎉"
+        echo "========================================"
+        echo ""
+        echo "🌍 Tu sitio está disponible en:"
+        echo "http://${{ env.S3_BUCKET }}.s3-website-${{ env.AWS_REGION }}.amazonaws.com"
+        echo ""
+        echo "🔗 Haz clic para abrir:"
+        echo "http://www.mswdevops.com.s3-website-us-east-1.amazonaws.com"
+        echo ""
+        echo "📊 Para ver en AWS Console:"
+        echo "https://s3.console.aws.amazon.com/s3/buckets/${{ env.S3_BUCKET }}"
+        echo "========================================"
+        
+    - name: 📢 Create deployment summary
+      if: always()
+      run: |
+        echo "## 🚀 Resumen del Despliegue" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Estado:** ✅ ÉXITO" >> $GITHUB_STEP_SUMMARY
+        echo "**Bucket S3:** ${{ env.S3_BUCKET }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Región:** ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
+        echo "**URL:** [http://${{ env.S3_BUCKET }}.s3-website-${{ env.AWS_REGION }}.amazonaws.com](http://${{ env.S3_BUCKET }}.s3-website-${{ env.AWS_REGION }}.amazonaws.com)" >> $GITHUB_STEP_SUMMARY
+        echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Ejecutado por:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Fecha:** $(date)" >> $GITHUB_STEP_SUMMARY

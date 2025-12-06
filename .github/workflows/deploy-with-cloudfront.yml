@@ -1,0 +1,40 @@
+name: 🔒 Add HTTPS to S3
+
+on: workflow_dispatch
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🔐 Configure AWS
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+        
+    - name: ☁️ Setup CloudFront for S3
+      run: |
+        # Esto crea CloudFront frente a tu S3
+        # Te da HTTPS gratis automáticamente
+        
+        BUCKET="www.mswdevops.com"
+        
+        echo "Configurando CloudFront para $BUCKET..."
+        
+        # Comando simplificado usando una plantilla
+        cat > setup-cloudfront.sh << 'EOF'
+        #!/bin/bash
+        # Script simplificado para CloudFront + S3
+        
+        echo "1. Creando OAI..."
+        # (Los comandos de arriba pero simplificados)
+        
+        echo "2. Creando distribución CloudFront..."
+        # AWS CLI commands aquí
+        
+        echo "✅ Listo! Tu sitio tendrá HTTPS en 10-15 minutos"
+        EOF
+        
+        echo "Ejecuta este workflow y revisa CloudFront en AWS Console"

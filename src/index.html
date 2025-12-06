@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>www.mswdevops.com - DevOps CI/CD</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 www.mswdevops.com</h1>
+            <p class="subtitle">Desplegado automáticamente con GitHub Actions + AWS S3</p>
+        </header>
+        
+        <main>
+            <div class="card">
+                <h2>✅ Estado Actual</h2>
+                <div class="status-grid">
+                    <div class="status-item success">
+                        <div class="status-title">AWS S3 Bucket</div>
+                        <div class="status-value">www.mswdevops.com</div>
+                    </div>
+                    <div class="status-item success">
+                        <div class="status-title">Hosting Estático</div>
+                        <div class="status-value">Habilitado</div>
+                    </div>
+                    <div class="status-item pending">
+                        <div class="status-title">CI/CD Pipeline</div>
+                        <div class="status-value">Configurando...</div>
+                    </div>
+                    <div class="status-item pending">
+                        <div class="status-title">SSL/HTTPS</div>
+                        <div class="status-value">Próximo paso</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>📊 Información del Pipeline</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Repositorio</div>
+                        <div class="info-value" id="repo">mswdevops-site</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Bucket S3</div>
+                        <div class="info-value">www.mswdevops.com</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Región AWS</div>
+                        <div class="info-value">us-east-1</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Última actualización</div>
+                        <div class="info-value" id="timestamp">Cargando...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>🎯 Próximos Pasos</h2>
+                <ol class="steps">
+                    <li><strong>Configurar GitHub Secrets</strong> - Credenciales AWS</li>
+                    <li><strong>Crear Workflow CI/CD</strong> - GitHub Actions</li>
+                    <li><strong>Automatizar despliegues</strong> - Push a main → Deploy</li>
+                    <li><strong>Agregar CloudFront</strong> - CDN + SSL gratuito</li>
+                </ol>
+            </div>
+            
+            <div class="card">
+                <h2>🔗 Enlaces Útiles</h2>
+                <div class="links">
+                    <a href="http://www.mswdevops.com.s3-website-us-east-1.amazonaws.com" target="_blank" class="link-button">
+                        🌐 Ver sitio en S3
+                    </a>
+                    <a href="https://github.com/felixfers/mswdevops-site" target="_blank" class="link-button">
+                        📁 Repositorio GitHub
+                    </a>
+                    <a href="https://s3.console.aws.amazon.com/s3/buckets/www.mswdevops.com" target="_blank" class="link-button">
+                        ⚙️ AWS S3 Console
+                    </a>
+                </div>
+            </div>
+        </main>
+        
+        <footer>
+            <p>Hecho con ❤️ para aprender DevOps | Pipeline CI/CD</p>
+            <p class="small">Este sitio se actualiza automáticamente con cada push al repositorio</p>
+        </footer>
+    </div>
+    
+    <script src="js/app.js"></script>
+</body>
+</html>

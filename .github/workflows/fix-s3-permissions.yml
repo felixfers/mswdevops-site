@@ -1,0 +1,80 @@
+name: 🔓 Fix S3 Bucket Permissions
+
+on: workflow_dispatch
+
+env:
+  S3_BUCKET: 'www.mswdevops.com'
+
+jobs:
+  fix-permissions:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🔐 Configure AWS
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+    
+    - name: 📝 Crear política de bucket para CloudFront
+      run: |
+        echo "Creando política para bucket: ${{ env.S3_BUCKET }}"
+        
+        cat > bucket-policy.json << EOF
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowCloudFrontAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudfront.amazonaws.com"
+              },
+              "Action": "s3:GetObject",
+              "Resource": "arn:aws:s3:::${{ env.S3_BUCKET }}/*",
+              "Condition": {
+                "StringEquals": {
+                  "AWS:SourceArn": "arn:aws:cloudfront::$(aws sts get-caller-identity --query Account --output text):distribution/E2NGPSUG1KHM6E"
+                }
+              }
+            },
+            {
+              "Sid": "PublicReadForGetBucketObjects",
+              "Effect": "Allow",
+              "Principal": "*",
+              "Action": "s3:GetObject",
+              "Resource": "arn:aws:s3:::${{ env.S3_BUCKET }}/*"
+            }
+          ]
+        }
+        EOF
+        
+        echo "Política creada:"
+        cat bucket-policy.json
+    
+    - name: 🛠️ Aplicar política al bucket
+      run: |
+        echo "Aplicando política a bucket S3..."
+        
+        # Aplicar política
+        aws s3api put-bucket-policy \
+          --bucket "${{ env.S3_BUCKET }}" \
+          --policy file://bucket-policy.json
+        
+        echo "✅ Política aplicada"
+        
+        # Habilitar website hosting
+        aws s3 website "s3://${{ env.S3_BUCKET }}" \
+          --index-document index.html \
+          --error-document error.html 2>/dev/null || echo "Website config already exists"
+        
+        echo "✅ Website hosting habilitado"
+    
+    - name: 📂 Verificar contenido del bucket
+      run: |
+        echo "Contenido actual del bucket:"
+        aws s3 ls "s3://${{ env.S3_BUCKET }}" --recursive || echo "Bucket vacío o sin acceso"
+        
+        echo ""
+        echo "Si el bucket está vacío, ejecuta 'Deploy to S3' después de este fix"

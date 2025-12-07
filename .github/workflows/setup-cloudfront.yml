@@ -17,51 +17,92 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: us-east-1
     
-    - name: 🔍 Buscar CloudFront existente
+    - name: 🔍 Buscar CloudFront existente (VERSIÓN SIMPLE)
       id: check_cf
       run: |
         echo "Buscando CloudFront para: ${{ env.S3_BUCKET }}"
         
-        # Listar distribuciones
-        ALL_CF=$(aws cloudfront list-distributions)
+        # Método SEGURO: Listar todas y filtrar con jq
+        ALL_CF=$(aws cloudfront list-distributions --output json)
         
-        # Buscar por bucket S3
-        CF_ID=$(echo "$ALL_CF" | jq -r '
+        # Guardar para debug
+        echo "=== DEBUG: Respuesta completa (primeras 500 chars) ==="
+        echo "$ALL_CF" | head -c 500
+        echo ""
+        echo "=========================================="
+        
+        # Buscar distribución que apunte a nuestro bucket S3
+        # Formato del dominio: www.mswdevops.com.s3.amazonaws.com
+        BUCKET_DOMAIN="${{ env.S3_BUCKET }}.s3.amazonaws.com"
+        
+        echo "Buscando dominio: $BUCKET_DOMAIN"
+        
+        # Usar jq para buscar
+        CF_ID=$(echo "$ALL_CF" | jq -r --arg domain "$BUCKET_DOMAIN" '
           .DistributionList.Items[] |
-          select(.Origins.Items[].DomainName == "'${{ env.S3_BUCKET }}'.s3.amazonaws.com") |
-          .Id' 2>/dev/null || echo "")
+          select(.Origins.Items[].DomainName == $domain) |
+          .Id' 2>/dev/null || echo "NO_ENCONTRADO")
         
-        if [ -n "$CF_ID" ]; then
+        echo "Resultado búsqueda: $CF_ID"
+        
+        if [ "$CF_ID" != "NO_ENCONTRADO" ] && [ -n "$CF_ID" ]; then
           echo "✅ CloudFront EXISTE: $CF_ID"
+          
+          # Obtener dominio también
           CF_DOMAIN=$(echo "$ALL_CF" | jq -r --arg id "$CF_ID" '
-            .DistributionList.Items[] | select(.Id == $id) | .DomainName')
+            .DistributionList.Items[] | 
+            select(.Id == $id) | 
+            .DomainName')
+          
+          echo "Dominio CloudFront: $CF_DOMAIN"
           
           echo "distribution_id=$CF_ID" >> $GITHUB_OUTPUT
           echo "distribution_domain=$CF_DOMAIN" >> $GITHUB_OUTPUT
+          echo "cf_exists=true" >> $GITHUB_OUTPUT
         else
-          echo "📦 Creando NUEVO CloudFront..."
+          echo "📦 NO existe CloudFront para este bucket"
+          echo "cf_exists=false" >> $GITHUB_OUTPUT
         fi
     
     - name: 🆕 Crear CloudFront (si no existe)
-      if: steps.check_cf.outputs.distribution_id == ''
+      if: steps.check_cf.outputs.cf_exists == 'false'
       id: create_cf
       run: |
-        echo "Creando configuración CloudFront..."
+        echo "=== CREANDO NUEVO CLOUDFRONT ==="
         
-        cat > cf-config.json << 'EOF'
+        # Configuración SIMPLIFICADA que SI funciona
+        cat > cf-config.json << EOF
         {
           "CallerReference": "cf-$(date +%s)",
           "Origins": {
             "Quantity": 1,
-            "Items": [{
-              "Id": "S3-${{ env.S3_BUCKET }}",
-              "DomainName": "${{ env.S3_BUCKET }}.s3.amazonaws.com",
-              "S3OriginConfig": {"OriginAccessIdentity": ""}
-            }]
+            "Items": [
+              {
+                "Id": "S3-${{ env.S3_BUCKET }}",
+                "DomainName": "${{ env.S3_BUCKET }}.s3.amazonaws.com",
+                "S3OriginConfig": {
+                  "OriginAccessIdentity": ""
+                }
+              }
+            ]
           },
           "DefaultCacheBehavior": {
             "TargetOriginId": "S3-${{ env.S3_BUCKET }}",
             "ViewerProtocolPolicy": "redirect-to-https",
+            "TrustedSigners": {
+              "Enabled": false,
+              "Quantity": 0
+            },
+            "ForwardedValues": {
+              "QueryString": false,
+              "Cookies": {
+                "Forward": "none"
+              }
+            },
+            "MinTTL": 0,
+            "DefaultTTL": 86400,
+            "MaxTTL": 31536000,
+            "Compress": true,
             "AllowedMethods": {
               "Quantity": 2,
               "Items": ["GET", "HEAD"],
@@ -69,40 +110,60 @@ jobs:
                 "Quantity": 2,
                 "Items": ["GET", "HEAD"]
               }
-            },
-            "ForwardedValues": {
-              "QueryString": false,
-              "Cookies": {"Forward": "none"}
-            },
-            "MinTTL": 0,
-            "DefaultTTL": 86400,
-            "MaxTTL": 31536000
+            }
           },
           "Comment": "HTTPS for ${{ env.S3_BUCKET }}",
           "Enabled": true,
-          "DefaultRootObject": "index.html"
+          "DefaultRootObject": "index.html",
+          "PriceClass": "PriceClass_100",
+          "HttpVersion": "http2",
+          "IsIPV6Enabled": true
         }
         EOF
         
-        # Crear distribución
-        RESPONSE=$(aws cloudfront create-distribution --distribution-config file://cf-config.json)
+        echo "=== Configuración creada ==="
+        cat cf-config.json
         
-        CF_ID=$(echo "$RESPONSE" | jq -r '.Distribution.Id')
-        CF_DOMAIN=$(echo "$RESPONSE" | jq -r '.Distribution.DomainName')
+        echo ""
+        echo "=== Creando distribución CloudFront ==="
+        
+        # Crear distribución
+        CF_RESPONSE=$(aws cloudfront create-distribution --distribution-config file://cf-config.json 2>&1)
+        
+        # Verificar si hubo error
+        if echo "$CF_RESPONSE" | grep -q "error\|Error\|ERROR"; then
+          echo "❌ ERROR al crear CloudFront:"
+          echo "$CF_RESPONSE"
+          exit 1
+        fi
+        
+        # Extraer ID y dominio
+        CF_ID=$(echo "$CF_RESPONSE" | jq -r '.Distribution.Id' 2>/dev/null || echo "ERROR")
+        CF_DOMAIN=$(echo "$CF_RESPONSE" | jq -r '.Distribution.DomainName' 2>/dev/null || echo "ERROR")
+        
+        if [ "$CF_ID" = "ERROR" ]; then
+          echo "❌ No se pudo extraer ID de CloudFront"
+          echo "Respuesta completa:"
+          echo "$CF_RESPONSE"
+          exit 1
+        fi
         
         echo "distribution_id=$CF_ID" >> $GITHUB_OUTPUT
         echo "distribution_domain=$CF_DOMAIN" >> $GITHUB_OUTPUT
         
-        echo "✅ CloudFront CREADO: $CF_ID"
+        echo "✅ CloudFront CREADO EXITOSAMENTE"
+        echo "   ID: $CF_ID"
+        echo "   Dominio: $CF_DOMAIN"
     
-    - name: 📊 Mostrar resultado
+    - name: 📊 Mostrar resultado FINAL
       run: |
         echo ""
         echo "========================================"
-        echo "🔐 HTTPS CONFIGURADO"
+        echo "🎉 CONFIGURACIÓN COMPLETADA"
         echo "========================================"
         
-        if [ -n "${{ steps.check_cf.outputs.distribution_id }}" ]; then
+        # Determinar qué valores usar
+        if [ "${{ steps.check_cf.outputs.cf_exists }}" = "true" ]; then
           CF_ID="${{ steps.check_cf.outputs.distribution_id }}"
           CF_DOMAIN="${{ steps.check_cf.outputs.distribution_domain }}"
           echo "✅ Usando CloudFront EXISTENTE"
@@ -113,16 +174,31 @@ jobs:
         fi
         
         echo ""
-        echo "📋 INFORMACIÓN:"
+        echo "📋 INFORMACIÓN IMPORTANTE:"
         echo "   CloudFront ID: $CF_ID"
-        echo "   URL con HTTPS: https://$CF_DOMAIN"
         echo ""
-        echo "🌍 COMPARACIÓN:"
+        echo "🔗 URLs COMPARATIVAS:"
+        echo ""
         echo "   ❌ SIN HTTPS (Not Secure):"
         echo "      http://${{ env.S3_BUCKET }}.s3-website-us-east-1.amazonaws.com"
         echo ""
-        echo "   ✅ CON HTTPS (Secure):"
+        echo "   ✅ CON HTTPS (Secure - USA ESTA):"
         echo "      🔒 https://$CF_DOMAIN"
         echo ""
-        echo "⏱️  Si es nuevo, espera 15-30 minutos"
+        echo "⏱️  TIEMPOS:"
+        if [ "${{ steps.check_cf.outputs.cf_exists }}" = "true" ]; then
+          echo "   ✓ Listo para usar inmediatamente"
+        else
+          echo "   ⚠️  Nueva distribución - Espera 15-30 minutos"
+        fi
+        
+        echo ""
+        echo "🔧 PASOS SIGUIENTES:"
+        echo "   1. Copia esta URL: https://$CF_DOMAIN"
+        echo "   2. Ejecuta el workflow 'Deploy to S3'"
+        echo "   3. Abre la URL en el navegador"
+        echo "   4. Deberías ver el candado verde 🔒"
+        echo ""
+        echo "⚠️  NOTA: CloudFront SIEMPRE usará HTTPS"
+        echo "         El 'Not Secure' desaparecerá"
         echo "========================================"

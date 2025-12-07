@@ -1,0 +1,48 @@
+name: 🚀 Deploy to S3
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  S3_BUCKET: 'www.mswdevops.com'
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v3
+    
+    - name: 🔐 Configure AWS
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: 🪣 Sync to S3
+      run: |
+        echo "Subiendo archivos a S3..."
+        aws s3 sync . s3://${{ env.S3_BUCKET }} \
+          --exclude ".git/*" \
+          --exclude ".github/*" \
+          --exclude "*.yml" \
+          --delete
+        
+        echo "✅ Archivos subidos a: ${{ env.S3_BUCKET }}"
+    
+    - name: 📝 Mostrar URLs
+      run: |
+        echo ""
+        echo "========================================"
+        echo "📦 DEPLOY COMPLETADO"
+        echo "========================================"
+        echo "S3 Bucket: ${{ env.S3_BUCKET }}"
+        echo "URL HTTP: http://${{ env.S3_BUCKET }}.s3-website-${{ env.AWS_REGION }}.amazonaws.com"
+        echo ""
+        echo "🔐 Para HTTPS: Ejecuta el workflow 'Setup CloudFront'"
+        echo "========================================"

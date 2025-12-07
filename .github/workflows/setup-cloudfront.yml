@@ -1,0 +1,128 @@
+name: 🔐 Setup CloudFront (HTTPS)
+
+on: workflow_dispatch
+
+env:
+  S3_BUCKET: 'www.mswdevops.com'
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🔐 Configure AWS
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+    
+    - name: 🔍 Buscar CloudFront existente
+      id: check_cf
+      run: |
+        echo "Buscando CloudFront para: ${{ env.S3_BUCKET }}"
+        
+        # Listar distribuciones
+        ALL_CF=$(aws cloudfront list-distributions)
+        
+        # Buscar por bucket S3
+        CF_ID=$(echo "$ALL_CF" | jq -r '
+          .DistributionList.Items[] |
+          select(.Origins.Items[].DomainName == "'${{ env.S3_BUCKET }}'.s3.amazonaws.com") |
+          .Id' 2>/dev/null || echo "")
+        
+        if [ -n "$CF_ID" ]; then
+          echo "✅ CloudFront EXISTE: $CF_ID"
+          CF_DOMAIN=$(echo "$ALL_CF" | jq -r --arg id "$CF_ID" '
+            .DistributionList.Items[] | select(.Id == $id) | .DomainName')
+          
+          echo "distribution_id=$CF_ID" >> $GITHUB_OUTPUT
+          echo "distribution_domain=$CF_DOMAIN" >> $GITHUB_OUTPUT
+        else
+          echo "📦 Creando NUEVO CloudFront..."
+        fi
+    
+    - name: 🆕 Crear CloudFront (si no existe)
+      if: steps.check_cf.outputs.distribution_id == ''
+      id: create_cf
+      run: |
+        echo "Creando configuración CloudFront..."
+        
+        cat > cf-config.json << 'EOF'
+        {
+          "CallerReference": "cf-$(date +%s)",
+          "Origins": {
+            "Quantity": 1,
+            "Items": [{
+              "Id": "S3-${{ env.S3_BUCKET }}",
+              "DomainName": "${{ env.S3_BUCKET }}.s3.amazonaws.com",
+              "S3OriginConfig": {"OriginAccessIdentity": ""}
+            }]
+          },
+          "DefaultCacheBehavior": {
+            "TargetOriginId": "S3-${{ env.S3_BUCKET }}",
+            "ViewerProtocolPolicy": "redirect-to-https",
+            "AllowedMethods": {
+              "Quantity": 2,
+              "Items": ["GET", "HEAD"],
+              "CachedMethods": {
+                "Quantity": 2,
+                "Items": ["GET", "HEAD"]
+              }
+            },
+            "ForwardedValues": {
+              "QueryString": false,
+              "Cookies": {"Forward": "none"}
+            },
+            "MinTTL": 0,
+            "DefaultTTL": 86400,
+            "MaxTTL": 31536000
+          },
+          "Comment": "HTTPS for ${{ env.S3_BUCKET }}",
+          "Enabled": true,
+          "DefaultRootObject": "index.html"
+        }
+        EOF
+        
+        # Crear distribución
+        RESPONSE=$(aws cloudfront create-distribution --distribution-config file://cf-config.json)
+        
+        CF_ID=$(echo "$RESPONSE" | jq -r '.Distribution.Id')
+        CF_DOMAIN=$(echo "$RESPONSE" | jq -r '.Distribution.DomainName')
+        
+        echo "distribution_id=$CF_ID" >> $GITHUB_OUTPUT
+        echo "distribution_domain=$CF_DOMAIN" >> $GITHUB_OUTPUT
+        
+        echo "✅ CloudFront CREADO: $CF_ID"
+    
+    - name: 📊 Mostrar resultado
+      run: |
+        echo ""
+        echo "========================================"
+        echo "🔐 HTTPS CONFIGURADO"
+        echo "========================================"
+        
+        if [ -n "${{ steps.check_cf.outputs.distribution_id }}" ]; then
+          CF_ID="${{ steps.check_cf.outputs.distribution_id }}"
+          CF_DOMAIN="${{ steps.check_cf.outputs.distribution_domain }}"
+          echo "✅ Usando CloudFront EXISTENTE"
+        else
+          CF_ID="${{ steps.create_cf.outputs.distribution_id }}"
+          CF_DOMAIN="${{ steps.create_cf.outputs.distribution_domain }}"
+          echo "✅ NUEVO CloudFront CREADO"
+        fi
+        
+        echo ""
+        echo "📋 INFORMACIÓN:"
+        echo "   CloudFront ID: $CF_ID"
+        echo "   URL con HTTPS: https://$CF_DOMAIN"
+        echo ""
+        echo "🌍 COMPARACIÓN:"
+        echo "   ❌ SIN HTTPS (Not Secure):"
+        echo "      http://${{ env.S3_BUCKET }}.s3-website-us-east-1.amazonaws.com"
+        echo ""
+        echo "   ✅ CON HTTPS (Secure):"
+        echo "      🔒 https://$CF_DOMAIN"
+        echo ""
+        echo "⏱️  Si es nuevo, espera 15-30 minutos"
+        echo "========================================"
